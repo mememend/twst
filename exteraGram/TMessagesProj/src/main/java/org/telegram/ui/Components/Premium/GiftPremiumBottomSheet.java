@@ -43,6 +43,7 @@ import org.telegram.ui.Cells.TextInfoPrivacyCell;
 import org.telegram.ui.ChatActivity;
 import org.telegram.ui.Components.AlertsCreator;
 import org.telegram.ui.Components.BottomSheetWithRecyclerListView;
+import org.telegram.ui.Components.BulletinFactory;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.LaunchActivity;
@@ -301,15 +302,22 @@ public class GiftPremiumBottomSheet extends BottomSheetWithRecyclerListView impl
         GiftTier tier = giftTiers.get(selectedTierIndex);
         if (BuildVars.useInvoiceBilling()) {
             if (getBaseFragment().getParentActivity() instanceof LaunchActivity) {
-                Uri uri = Uri.parse(tier.giftOption.bot_url);
-                if (uri.getHost().equals("t.me")) {
-                    if (!uri.getPath().startsWith("/$") && !uri.getPath().startsWith("/invoice/")) {
+                final String botUrl = tier.giftOption.bot_url;
+                if (android.text.TextUtils.isEmpty(botUrl)) {
+                    BulletinFactory.of(getBaseFragment()).createSimpleBulletin(R.raw.error, LocaleController.getString(R.string.PurchaseUnavailable)).show();
+                    return;
+                }
+                Uri uri = Uri.parse(botUrl);
+                final String host = uri.getHost();
+                final String path = uri.getPath();
+                if ("t.me".equals(host)) {
+                    if (path == null || (!path.startsWith("/$") && !path.startsWith("/invoice/"))) {
                         ((LaunchActivity) getBaseFragment().getParentActivity()).setNavigateToPremiumBot(true);
                     } else {
                         ((LaunchActivity) getBaseFragment().getParentActivity()).setNavigateToPremiumGiftCallback(()-> onGiftSuccess(false));
                     }
                 }
-                Browser.openUrl(getBaseFragment().getParentActivity(), tier.giftOption.bot_url);
+                Browser.openUrl(getBaseFragment().getParentActivity(), botUrl);
                 dismiss();
             }
         } else {

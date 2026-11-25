@@ -79,6 +79,7 @@ import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.tl.TL_account;
 import org.telegram.tgnet.tl.TL_stars;
 import org.telegram.ui.ActionBar.ActionBar;
+import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.EdgeToEdgeSupportMode;
 import org.telegram.ui.ActionBar.Theme;
@@ -1121,6 +1122,69 @@ public class PremiumPreviewFragment extends BaseFragment implements Notification
         buyPremium(fragment, null, source, true);
     }
 
+    private static void buyPremiumWithStars(LaunchActivity launchActivity, BaseFragment fragment, int account, SubscriptionTier tier) {
+        final TLRPC.TL_premiumSubscriptionOption subscriptionOption = tier != null ? tier.subscriptionOption : null;
+        final int months = subscriptionOption != null && subscriptionOption.months > 0 ? subscriptionOption.months : 1;
+        final String currency = subscriptionOption != null && !TextUtils.isEmpty(subscriptionOption.currency) ? subscriptionOption.currency : "XTR";
+        final long amount = subscriptionOption != null && subscriptionOption.amount > 0 ? subscriptionOption.amount : 500;
+        final TLRPC.User currentUser = UserConfig.getInstance(account).getCurrentUser();
+        final BaseFragment host = fragment != null ? fragment : LaunchActivity.getSafeLastFragment();
+        if (!"XTR".equals(currency) || currentUser == null || host == null || host.getParentActivity() == null) {
+            BulletinFactory.of((FrameLayout) launchActivity.getActionBarLayout(), null).createSimpleBulletin(R.raw.error, LocaleController.getString(R.string.PurchaseUnavailable)).show();
+            return;
+        }
+
+        final TLRPC.TL_premiumGiftCodeOption option = new TLRPC.TL_premiumGiftCodeOption();
+        option.users = 1;
+        option.months = months;
+        option.currency = currency;
+        option.amount = amount;
+
+        final TLRPC.TL_inputStorePaymentPremiumGiftCode purpose = new TLRPC.TL_inputStorePaymentPremiumGiftCode();
+        purpose.users.add(MessagesController.getInstance(account).getInputUser(currentUser));
+        purpose.currency = currency;
+        purpose.amount = amount;
+
+        final TLRPC.TL_inputInvoicePremiumGiftCode invoice = new TLRPC.TL_inputInvoicePremiumGiftCode();
+        invoice.purpose = purpose;
+        invoice.option = option;
+
+        final TL_stars.TL_payments_sendStarsForm req = new TL_stars.TL_payments_sendStarsForm();
+        req.form_id = 0;
+        req.invoice = invoice;
+
+        final String starsText = LocaleController.formatPluralString("Stars", (int) amount);
+        final AlertDialog.Builder builder = new AlertDialog.Builder(host.getParentActivity());
+        builder.setTitle(LocaleController.getString(R.string.TelegramPremium));
+        builder.setMessage(LocaleController.formatString(R.string.PremiumPayWithStars, months, starsText));
+        builder.setPositiveButton(LocaleController.getString(R.string.OK), (dialog, which) -> {
+            dialog.dismiss();
+            ConnectionsManager.getInstance(account).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+                if (error != null) {
+                    BulletinFactory.of(host).createSimpleBulletin(R.raw.error, LocaleController.getString(R.string.PurchaseUnavailable)).show();
+                    return;
+                }
+                if (response instanceof TLRPC.TL_payments_paymentResult) {
+                    TLRPC.Updates updates = ((TLRPC.TL_payments_paymentResult) response).updates;
+                    if (updates instanceof TLRPC.TL_updates) {
+                        MessagesController.getInstance(account).processUpdates((TLRPC.TL_updates) updates, false);
+                    }
+                }
+                currentUser.premium = true;
+                UserConfig.getInstance(account).saveConfig(false);
+                MessagesController.getInstance(account).updatePremium(true);
+                NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.premiumStatusChangedGlobal);
+                MediaDataController.getInstance(account).loadPremiumPromo(false);
+                if (host instanceof PremiumPreviewFragment) {
+                    ((PremiumPreviewFragment) host).setForcePremium();
+                }
+                BulletinFactory.of(host).createSimpleBulletin(R.raw.payment_success, LocaleController.getString(R.string.TelegramPremium), LocaleController.formatString(R.string.PremiumPaySuccess, months)).show();
+            }));
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        builder.show();
+    }
+
     public static void buyPremium(BaseFragment fragment, String source, boolean forcePremium) {
         buyPremium(fragment, null, source, forcePremium);
     }
@@ -1162,18 +1226,22 @@ public class PremiumPreviewFragment extends BaseFragment implements Notification
             final Activity activity = fragment != null ? fragment.getParentActivity() : LaunchActivity.instance;
             if (activity instanceof LaunchActivity) {
                 final LaunchActivity launchActivity = (LaunchActivity) activity;
-                if (selectedTier == null || selectedTier.subscriptionOption == null || selectedTier.subscriptionOption.bot_url == null) {
+                if (selectedTier == null || selectedTier.subscriptionOption == null || TextUtils.isEmpty(selectedTier.subscriptionOption.bot_url)) {
                     final MessagesController messagesController = MessagesController.getInstance(account);
                     if (!TextUtils.isEmpty(messagesController.premiumBotUsername)) {
                         launchActivity.setNavigateToPremiumBot(true);
                         launchActivity.onNewIntent(new Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/" + messagesController.premiumBotUsername + "?start=" + source)), (Browser.Progress) null);
                     } else if (!TextUtils.isEmpty(messagesController.premiumInvoiceSlug)) {
                         launchActivity.onNewIntent(new Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/$" + messagesController.premiumInvoiceSlug)), (Browser.Progress) null);
+                    } else {
+                        buyPremiumWithStars(launchActivity, fragment, account, selectedTier);
                     }
                 } else {
                     final Uri uri = Uri.parse(selectedTier.subscriptionOption.bot_url);
-                    if (uri.getHost().equals("t.me")) {
-                        if (!uri.getPath().startsWith("/$") && !uri.getPath().startsWith("/invoice/")) {
+                    final String host = uri.getHost();
+                    final String path = uri.getPath();
+                    if ("t.me".equals(host)) {
+                        if (path == null || (!path.startsWith("/$") && !path.startsWith("/invoice/"))) {
                             launchActivity.setNavigateToPremiumBot(true);
                         }
                     }

@@ -36,6 +36,7 @@ import org.telegram.messenger.AccountInstance;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.BaseController;
+import org.telegram.messenger.BuildConfig;
 import org.telegram.messenger.BuildVars;
 import org.telegram.messenger.CaptchaController;
 import org.telegram.messenger.EmuDetector;
@@ -791,6 +792,12 @@ public class ConnectionsManager extends BaseController {
         }
 
         native_init(currentAccount, version, layer, apiId, deviceModel, systemVersion, appVersion, langCode, systemLangCode, configPath, logPath, regId, cFingerprint, installer, packageId, timezoneOffset, userId, userPremium, enablePushConnection, ApplicationLoader.isNetworkOnline(), ApplicationLoader.getCurrentNetworkType(), SharedConfig.measureDevicePerformanceClass());
+        String customDcIp = BuildConfig.CUSTOM_DC_IP;
+        if (!TextUtils.isEmpty(customDcIp)) {
+            for (int dcId = 1; dcId <= 5; dcId++) {
+                native_applyDatacenterAddress(currentAccount, dcId, customDcIp, BuildConfig.CUSTOM_DC_PORT);
+            }
+        }
         checkConnection();
     }
 

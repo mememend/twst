@@ -125,6 +125,9 @@
     <string name="PaymentInvoice">INVOICE</string>
     <string name="PaymentInvoiceDisabledStarsText">Not enough stars</string>
     <string name="StarsPurchaseUnavailable">Purchasing stars is not available at this time.</string>
+    <string name="PurchaseUnavailable">This purchase is not available right now.</string>
+    <string name="PremiumPayWithStars">Activate Telegram Premium for %1$d months for %2$s?</string>
+    <string name="PremiumPaySuccess">Telegram Premium is active for %1$d months.</string>
     <string name="PaymentTestInvoice">TEST INVOICE</string>
     <string name="PaymentCheckoutPay">PAY %1$s</string>
     <string name="PaymentCheckoutMethod">Payment method</string>
