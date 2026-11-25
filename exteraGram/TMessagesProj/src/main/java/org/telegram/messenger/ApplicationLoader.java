@@ -377,40 +377,8 @@ public class ApplicationLoader extends Application implements Provider {
             FileLog.d("load libs time = " + (SystemClock.elapsedRealtime() - startTime));
         }
 
-        if (BuildVars.DEBUG_VERSION || ExteraConfig.getPluginsEngine()) {
-            var oldDefaultUncaughtExceptionHandler = Thread.getDefaultUncaughtExceptionHandler();
-            Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
-                var stackTrace = Log.getStackTraceString(e);
-                try {
-                    // we cant check crash source, so we just check if plugins engine is enabled
-                    if (ExteraConfig.getPluginsEngine()) {
-                        var editor = PluginsController.getInstance().getPreferences().edit();
-                        editor.putBoolean("had_crash", true).apply();
-
-                        String pluginId = null;
-                        for (String id : PluginsController.getInstance().getPlugins().keySet()) {
-                            if (stackTrace.contains(id)) {
-                                pluginId = id;
-                            }
-                        }
-                        if (pluginId != null) {
-                            editor.putString("crashed_plugin_id", pluginId).apply();
-                            FileLog.e("Plugin crash detected for plugin: " + pluginId);
-                        }
-                    }
-
-                    android.content.ClipboardManager clipboard = (android.content.ClipboardManager) ApplicationLoader.applicationContext.getSystemService(Context.CLIPBOARD_SERVICE);
-                    android.content.ClipData clip = android.content.ClipData.newPlainText("label", stackTrace);
-                    clipboard.setPrimaryClip(clip);
-                } catch (Exception ex) {
-                    FileLog.e(ex);
-                }
-                FileLog.e(stackTrace);
-                if (oldDefaultUncaughtExceptionHandler != null) {
-                    oldDefaultUncaughtExceptionHandler.uncaughtException(t, e);
-                }
-            });
-        }
+        installCrashHandler();
+        reportPendingCrash();
 
         applicationHandler = new Handler(applicationContext.getMainLooper());
 
@@ -433,6 +401,74 @@ public class ApplicationLoader extends Application implements Provider {
         //if (BuildConfig.DEBUG_PRIVATE_VERSION) {
         //    Choreographer60FpsContent.getInstance().addFrameCallback(debugEverySecondChecks, 1);
         //}
+    }
+
+    private static void installCrashHandler() {
+        var oldDefaultUncaughtExceptionHandler = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
+            var stackTrace = Log.getStackTraceString(e);
+            try {
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(new java.io.File(applicationContext.getFilesDir(), "last_crash.txt"), false)) {
+                    out.write((t.getName() + "\n" + stackTrace).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+            } catch (Throwable ex) {
+                FileLog.e(ex);
+            }
+            try {
+                if (ExteraConfig.getPluginsEngine()) {
+                    var editor = PluginsController.getInstance().getPreferences().edit();
+                    editor.putBoolean("had_crash", true).apply();
+
+                    String pluginId = null;
+                    for (String id : PluginsController.getInstance().getPlugins().keySet()) {
+                        if (stackTrace.contains(id)) {
+                            pluginId = id;
+                        }
+                    }
+                    if (pluginId != null) {
+                        editor.putString("crashed_plugin_id", pluginId).apply();
+                        FileLog.e("Plugin crash detected for plugin: " + pluginId);
+                    }
+                }
+
+                android.content.ClipboardManager clipboard = (android.content.ClipboardManager) ApplicationLoader.applicationContext.getSystemService(Context.CLIPBOARD_SERVICE);
+                android.content.ClipData clip = android.content.ClipData.newPlainText("label", stackTrace);
+                clipboard.setPrimaryClip(clip);
+            } catch (Exception ex) {
+                FileLog.e(ex);
+            }
+            FileLog.e(stackTrace);
+            if (oldDefaultUncaughtExceptionHandler != null) {
+                oldDefaultUncaughtExceptionHandler.uncaughtException(t, e);
+            }
+        });
+    }
+
+    private static void reportPendingCrash() {
+        try {
+            final java.io.File file = new java.io.File(applicationContext.getFilesDir(), "last_crash.txt");
+            if (!file.exists()) {
+                return;
+            }
+            final String text = new String(readFileBytes(file), java.nio.charset.StandardCharsets.UTF_8);
+            file.delete();
+            android.content.ClipboardManager clipboard = (android.content.ClipboardManager) applicationContext.getSystemService(Context.CLIPBOARD_SERVICE);
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("crash", text));
+            android.widget.Toast.makeText(applicationContext, "Трейс сбоя скопирован в буфер / crash trace copied to clipboard", android.widget.Toast.LENGTH_LONG).show();
+        } catch (Throwable ignore) {
+        }
+    }
+
+    private static byte[] readFileBytes(java.io.File file) throws java.io.IOException {
+        try (java.io.FileInputStream in = new java.io.FileInputStream(file)) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) > 0) {
+                out.write(buffer, 0, read);
+            }
+            return out.toByteArray();
+        }
     }
 
     private static void configureEmbeddedExteraHook() {
